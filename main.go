@@ -35,8 +35,11 @@ type MolGenData struct {
 	LastName  string
 	Birthdate string
 	// From: OS.Molekulargenetik
-	Date               string
-	OsMolGenId         int64
+	Date            string
+	Tumorzellgehalt int64
+	OsMolGenId      int64
+	// Subforms
+	Biomarkers         Biomarkers
 	CopyNumberVariants []CopyNumberVariant
 	SimpleVariants     []SimpleVariant
 }
@@ -50,6 +53,31 @@ func (data *MolGenData) AsStringArray() []string {
 		data.Date,
 	}
 
+	// TMB
+	if data.Biomarkers.TMB >= 0 {
+		result = append(result, "yes", fmt.Sprint(data.Biomarkers.TMB), "")
+	} else {
+		result = append(result, "no", "", "", "")
+	}
+
+	// HRD
+	if data.Biomarkers.HRDScore >= 0 {
+		result = append(result, "yes", "", fmt.Sprint(data.Biomarkers.HRDScore), "", "")
+	} else {
+		result = append(result, "no", "", "", "")
+	}
+
+	// MSI
+	if data.Biomarkers.TMB >= 0 {
+		result = append(result, "yes", "", "", fmt.Sprintf("Score: %.2f", data.Biomarkers.TMB))
+	} else {
+		result = append(result, "no", "", "", "")
+	}
+
+	// Tumor cell content
+	result = append(result, fmt.Sprintf("%d %%", data.Tumorzellgehalt), "histological", "")
+
+	// up to 10 CSV
 	for cnv := range 10 {
 		if cnv < len(data.CopyNumberVariants) {
 			result = append(result, data.CopyNumberVariants[cnv].Gene, "", data.CopyNumberVariants[cnv].CopyNumber)
@@ -58,9 +86,10 @@ func (data *MolGenData) AsStringArray() []string {
 		}
 	}
 
+	// up to 20 SV
 	for sv := range 20 {
 		if sv < len(data.SimpleVariants) {
-			result = append(result, data.SimpleVariants[sv].Gene, data.SimpleVariants[sv].AminoAcidChange, data.SimpleVariants[sv].BaseChange, "", "", "", "", "")
+			result = append(result, data.SimpleVariants[sv].Gene, data.SimpleVariants[sv].AminoAcidChange, data.SimpleVariants[sv].BaseChange, "", data.SimpleVariants[sv].AllelicFraction, "", "", "")
 		} else {
 			result = append(result, "", "", "", "", "", "", "", "")
 		}
@@ -83,6 +112,12 @@ type SimpleVariant struct {
 	Classification       string
 	Function             string
 	Impact               string
+}
+
+type Biomarkers struct {
+	TMB      float64
+	HRDScore int64
+	MSI      float64 // Value, not result -> comment!
 }
 
 func initCLI() {
@@ -110,7 +145,7 @@ func initDb(dbCfg mysql.Config) (*sql.DB, error) {
 }
 
 func fetchMolGens(db *sql.DB) ([]MolGenData, error) {
-	query := `SELECT DISTINCT patient.patienten_id, patient.vorname, patient.nachname, patient.geburtsdatum, dk_molekulargenetik.datum, dk_molekulargenetik.id FROM dk_molekulargenetik 
+	query := `SELECT DISTINCT patient.patienten_id, patient.vorname, patient.nachname, patient.geburtsdatum, dk_molekulargenetik.datum, dk_molekulargenetik.tumorzellgehalt, dk_molekulargenetik.id FROM dk_molekulargenetik 
 		JOIN prozedur ON (prozedur.id = dk_molekulargenetik.id)
 		JOIN patient ON (patient.id = prozedur.patient_id)
 		WHERE prozedur.geloescht <> 1
@@ -124,11 +159,12 @@ func fetchMolGens(db *sql.DB) ([]MolGenData, error) {
 	var geburtsdatum sql.NullString
 	// Main Form "OS.Molekulargenetik" with subforms for variants and biomarkers
 	var datum sql.NullString
+	var tumorzellgehalt sql.NullInt64
 	var osMolGenId sql.NullInt64
 
 	if rows, err := db.Query(query); err == nil {
 		for rows.Next() {
-			if err := rows.Scan(&patientenId, &vorname, &nachname, &geburtsdatum, &datum, &osMolGenId); err == nil {
+			if err := rows.Scan(&patientenId, &vorname, &nachname, &geburtsdatum, &datum, &tumorzellgehalt, &osMolGenId); err == nil {
 				result := &MolGenData{}
 
 				if val, err := patientenId.Value(); err == nil && val != nil {
@@ -151,8 +187,16 @@ func fetchMolGens(db *sql.DB) ([]MolGenData, error) {
 					result.Date = val.(string)
 				}
 
+				if val, err := tumorzellgehalt.Value(); err == nil && val != nil {
+					result.Tumorzellgehalt = val.(int64)
+				}
+
 				if val, err := osMolGenId.Value(); err == nil && val != nil {
 					result.OsMolGenId = val.(int64)
+				}
+
+				if biomarkers, err := fetchBiomarkers(db, osMolGenId.Int64); err == nil {
+					result.Biomarkers = biomarkers
 				}
 
 				if copyNumberVariants, err := fetchCnvs(db, osMolGenId.Int64); err == nil {
@@ -205,7 +249,7 @@ func fetchCnvs(db *sql.DB, mainFormId int64) ([]CopyNumberVariant, error) {
 }
 
 func fetchSvs(db *sql.DB, mainFormId int64) ([]SimpleVariant, error) {
-	query := `SELECT DISTINCT untersucht, proteinebenenomenklatur, cdnanomenklatur
+	query := `SELECT DISTINCT untersucht, proteinebenenomenklatur, cdnanomenklatur, allelfrequenz
 		FROM dk_molekulargenuntersuchung
 		JOIN prozedur ON (prozedur.id = dk_molekulargenuntersuchung.id)
 		WHERE prozedur.geloescht <> 1 AND ergebnis = 'P' AND prozedur.hauptprozedur_id = ?
@@ -216,10 +260,11 @@ func fetchSvs(db *sql.DB, mainFormId int64) ([]SimpleVariant, error) {
 	var gene sql.NullString
 	var aminoAcidChange sql.NullString
 	var baseChange sql.NullString
+	var allelfrequenz sql.NullString
 
 	if rows, err := db.Query(query, mainFormId); err == nil {
 		for rows.Next() {
-			if err := rows.Scan(&gene, &aminoAcidChange, &baseChange); err == nil {
+			if err := rows.Scan(&gene, &aminoAcidChange, &baseChange, &allelfrequenz); err == nil {
 				result := &SimpleVariant{}
 
 				if val, err := gene.Value(); err == nil && val != nil {
@@ -234,6 +279,10 @@ func fetchSvs(db *sql.DB, mainFormId int64) ([]SimpleVariant, error) {
 					result.BaseChange = val.(string)
 				}
 
+				if val, err := allelfrequenz.Value(); err == nil && val != nil {
+					result.AllelicFraction = val.(string)
+				}
+
 				results = append(results, *result)
 			}
 		}
@@ -242,12 +291,80 @@ func fetchSvs(db *sql.DB, mainFormId int64) ([]SimpleVariant, error) {
 	return results, nil
 }
 
+func fetchBiomarkers(db *sql.DB, mainFormId int64) (Biomarkers, error) {
+	query := `SELECT DISTINCT tumormutationalburden, bewertung, komplexerbiomarker
+		FROM dk_molekluargenmsi
+		JOIN prozedur ON (prozedur.id = dk_molekluargenmsi.id)
+		WHERE prozedur.geloescht <> 1 AND komplexerbiomarker = 'TMB' AND prozedur.hauptprozedur_id = ?
+		UNION
+		SELECT DISTINCT seqprozentwert AS val,  bewertung, komplexerbiomarker
+		FROM dk_molekluargenmsi
+		JOIN prozedur ON (prozedur.id = dk_molekluargenmsi.id)
+		WHERE prozedur.geloescht <> 1 AND komplexerbiomarker = 'MSI' AND prozedur.hauptprozedur_id = ?
+		UNION
+		SELECT DISTINCT score AS val,  bewertung, komplexerbiomarker
+		FROM dk_molekluargenmsi
+		JOIN prozedur ON (prozedur.id = dk_molekluargenmsi.id)
+		WHERE prozedur.geloescht <> 1 AND komplexerbiomarker = 'HRD' AND prozedur.hauptprozedur_id = ?`
+
+	var value sql.NullFloat64
+	var bewertung sql.NullString
+	var typ sql.NullString
+
+	result := Biomarkers{}
+
+	if rows, err := db.Query(query, mainFormId, mainFormId, mainFormId); err == nil {
+		for rows.Next() {
+			if err := rows.Scan(&value, &bewertung, &typ); err == nil {
+				if typ, err := typ.Value(); err == nil && typ != nil {
+					if typ.(string) == "TMB" {
+						if value, err := value.Value(); err == nil && value != nil {
+							result.TMB = value.(float64)
+						} else {
+							result.TMB = -1
+						}
+					} else if typ.(string) == "MSI" {
+						if value, err := value.Value(); err == nil && value != nil {
+							result.MSI = value.(float64)
+						} else {
+							result.MSI = -1
+						}
+					} else if typ.(string) == "HRD" {
+						if value, err := value.Value(); err == nil && value != nil {
+							result.HRDScore = int64(value.(float64))
+						} else {
+							result.HRDScore = -1
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
+
 func WriteXlsxFile(filename string, patientData []MolGenData) error {
 	headers := []string{"PatID",
 		"Vorname",
 		"Nachname",
 		"Geburtstag",
 		"Seq. Datum",
+		"TMB analysis done",
+		"TMB",
+		"TMB comment",
+		"GI/HRD analysis done",
+		"GI/HRD",
+		"GI-score",
+		"Method",
+		"GI/HRD comment",
+		"MSI analysis done",
+		"MSI result",
+		"MSI method",
+		"MSI comment",
+		"Tumor cell content result",
+		"Tumor cell content method",
+		"Tumor cell content comment",
 	}
 
 	for i := range 10 {

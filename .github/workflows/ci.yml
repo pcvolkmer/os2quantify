@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ 'master' ]
+  push:
+    branches: [ 'master' ]
+  release:
+    types: [ 'created' ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+      - run: go test
+  linuxbuild:
+    name: Create Linux Package
+    runs-on: ubuntu-latest
+    needs:
+      - test
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+      - run: make linux-package
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: ${{ github.event_name == 'release' && github.event.action == 'created' }}
+        with:
+          make_latest: 'true'
+          files: |
+            *linux.tar.gz
+  windowsbuild:
+    name: Create Windows Package
+    runs-on: ubuntu-latest
+    needs:
+      - test
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+      - run: make win-package
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: ${{ github.event_name == 'release' && github.event.action == 'created' }}
+        with:
+          make_latest: 'true'
+          files: |
+            *win64.zip

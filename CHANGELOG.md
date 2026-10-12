@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/pcvolkmer/os2quantify/compare/v0.1.0...v0.1.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* correct MSI-Score comment ([#3](https://github.com/pcvolkmer/os2quantify/issues/3)) ([6578865](https://github.com/pcvolkmer/os2quantify/commit/65788659882e36247fb66ca911f5015843e7ba69))
+
 ## [0.1.0](https://github.com/pcvolkmer/os2quantify/compare/v0.1.0...v0.1.0) (2026-09-06)
 
 

@@ -68,8 +68,8 @@ func (data *MolGenData) AsStringArray() []string {
 	}
 
 	// MSI
-	if data.Biomarkers.TMB >= 0 {
-		result = append(result, "yes", "", "", fmt.Sprintf("Score: %.2f", data.Biomarkers.TMB))
+	if data.Biomarkers.MSI >= 0 {
+		result = append(result, "yes", "", "", fmt.Sprintf("Score: %.2f", data.Biomarkers.MSI))
 	} else {
 		result = append(result, "no", "", "", "")
 	}

@@ -57,14 +57,14 @@ func (data *MolGenData) AsStringArray() []string {
 	if data.Biomarkers.TMB >= 0 {
 		result = append(result, "yes", fmt.Sprint(data.Biomarkers.TMB), "")
 	} else {
-		result = append(result, "no", "", "", "")
+		result = append(result, "no", "", "")
 	}
 
 	// HRD
 	if data.Biomarkers.HRDScore >= 0 {
 		result = append(result, "yes", "", fmt.Sprint(data.Biomarkers.HRDScore), "", "")
 	} else {
-		result = append(result, "no", "", "", "")
+		result = append(result, "no", "", "", "", "")
 	}
 
 	// MSI

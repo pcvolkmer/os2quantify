@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/pcvolkmer/os2quantify/compare/v0.1.1...v0.1.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* insert empty cells were needed ([7607956](https://github.com/pcvolkmer/os2quantify/commit/760795602d56d19026f656293cf0a2f2777e1234))
+
 ## [0.1.1](https://github.com/pcvolkmer/os2quantify/compare/v0.1.0...v0.1.1) (2026-10-12)
 
 
